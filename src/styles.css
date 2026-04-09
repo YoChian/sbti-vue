@@ -1,0 +1,40 @@
+.option.selected {
+  border-color: #9cb4a1;
+  background: #f4fbf5;
+  box-shadow: 0 8px 20px rgba(77, 106, 83, 0.08);
+}
+
+.option-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.poster-box.no-image {
+  min-height: auto;
+}
+
+.poster-box.no-image .poster-caption {
+  margin-top: 0;
+}
+
+.test-wrap .topbar {
+  position: sticky;
+  top: 12px;
+  z-index: 10;
+  padding: 12px 14px;
+  margin: 0 0 18px;
+  border: 1px solid rgba(219, 232, 221, 0.92);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 10px 24px rgba(47, 73, 55, 0.08);
+}
+
+@media (max-width: 600px) {
+  .test-wrap .topbar {
+    top: 8px;
+    padding: 10px 12px;
+  }
+}
