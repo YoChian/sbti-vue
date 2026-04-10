@@ -32,43 +32,98 @@ function parsePattern(pattern) {
   return pattern.replace(/-/g, '').split('');
 }
 
+function resolvePublicAssetPath(assetPath) {
+  if (!assetPath) return '';
+  if (/^https?:\/\//.test(assetPath) || assetPath.startsWith('data:')) {
+    return assetPath;
+  }
+
+  const normalizedPath = assetPath.replace(/^\/+/, '');
+  return `${import.meta.env.BASE_URL}${normalizedPath}`;
+}
+
 function scrollToTop() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 export function useSbtiTest() {
   const screen = ref('intro');
-  const isReady = ref(false);
+  const isQuestionDataReady = ref(false);
+  const isResultDataReady = ref(false);
+  const isSubmitting = ref(false);
   const loadError = ref('');
   const previewMode = ref(false);
   const answers = ref({});
   const shuffledQuestions = ref([]);
   const result = ref(null);
-  const prototypeData = ref(null);
+  const questionData = ref(null);
+  const resultData = ref(null);
+  let questionDataPromise = null;
+  let resultDataPromise = null;
 
-  async function ensureDataLoaded() {
-    if (prototypeData.value || loadError.value) return;
+  async function ensureQuestionDataLoaded() {
+    if (questionData.value) return questionData.value;
+    if (questionDataPromise) return questionDataPromise;
 
-    try {
-      const response = await fetch(`${import.meta.env.BASE_URL}prototype-data.json`);
+    questionDataPromise = fetch(`${import.meta.env.BASE_URL}question-data.json`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`请求失败：${response.status}`);
+        }
 
-      if (!response.ok) {
-        throw new Error(`请求失败：${response.status}`);
-      }
+        return response.json();
+      })
+      .then((data) => {
+        questionData.value = data;
+        isQuestionDataReady.value = true;
+        void ensureResultDataLoaded();
+        return data;
+      })
+      .catch((error) => {
+        loadError.value = error instanceof Error ? error.message : '未知错误';
+        throw error;
+      })
+      .finally(() => {
+        questionDataPromise = null;
+      });
 
-      prototypeData.value = await response.json();
-      isReady.value = true;
-    } catch (error) {
-      loadError.value = error instanceof Error ? error.message : '未知错误';
-    }
+    return questionDataPromise;
   }
 
-  ensureDataLoaded();
+  async function ensureResultDataLoaded() {
+    if (resultData.value) return resultData.value;
+    if (resultDataPromise) return resultDataPromise;
+
+    resultDataPromise = fetch(`${import.meta.env.BASE_URL}result-data.json`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`请求失败：${response.status}`);
+        }
+
+        return response.json();
+      })
+      .then((data) => {
+        resultData.value = data;
+        isResultDataReady.value = true;
+        return data;
+      })
+      .catch((error) => {
+        loadError.value = error instanceof Error ? error.message : '未知错误';
+        throw error;
+      })
+      .finally(() => {
+        resultDataPromise = null;
+      });
+
+    return resultDataPromise;
+  }
+
+  void ensureQuestionDataLoaded();
 
   const visibleQuestions = computed(() => {
-    if (!prototypeData.value) return [];
+    if (!questionData.value) return [];
 
-    const { specialQuestions } = prototypeData.value;
+    const { specialQuestions } = questionData.value;
     const visible = [...shuffledQuestions.value];
     const gateIndex = visible.findIndex((question) => question.id === 'drink_gate_q1');
 
@@ -100,21 +155,27 @@ export function useSbtiTest() {
   }
 
   function getQuestionMetaLabel(question) {
-    if (!prototypeData.value) return '';
-    const { dimensionMeta } = prototypeData.value;
+    if (!questionData.value) return '';
+    const { dimensionMeta } = questionData.value;
     if (question.special) return '补充题';
     return previewMode.value ? dimensionMeta[question.dim].name : '维度已隐藏';
   }
 
   async function startTest(preview = false) {
-    await ensureDataLoaded();
-    if (!prototypeData.value) return;
+    try {
+      await ensureQuestionDataLoaded();
+    } catch {
+      return;
+    }
 
-    const { questions, specialQuestions } = prototypeData.value;
+    if (!questionData.value) return;
+
+    const { questions, specialQuestions } = questionData.value;
 
     previewMode.value = preview;
     answers.value = {};
     result.value = null;
+    isSubmitting.value = false;
 
     const shuffledRegularQuestions = shuffle(questions);
     const insertIndex = Math.floor(Math.random() * shuffledRegularQuestions.length) + 1;
@@ -141,21 +202,26 @@ export function useSbtiTest() {
   }
 
   function getDrunkTriggered() {
-    if (!prototypeData.value) return false;
-    const { DRUNK_TRIGGER_QUESTION_ID } = prototypeData.value;
+    if (!questionData.value) return false;
+    const { DRUNK_TRIGGER_QUESTION_ID } = questionData.value;
     return answers.value[DRUNK_TRIGGER_QUESTION_ID] === 2;
   }
 
   function computeResult() {
+    if (!questionData.value || !resultData.value) return null;
+
+    const {
+      dimensionMeta,
+      questions,
+      DRUNK_TRIGGER_QUESTION_ID,
+    } = questionData.value;
     const {
       DIM_EXPLANATIONS,
       NORMAL_TYPES,
       TYPE_IMAGES,
       TYPE_LIBRARY,
-      dimensionMeta,
       dimensionOrder,
-      questions,
-    } = prototypeData.value;
+    } = resultData.value;
     const rawScores = {};
     const levels = {};
 
@@ -200,7 +266,7 @@ export function useSbtiTest() {
     });
 
     const bestNormal = ranked[0];
-    const drunkTriggered = getDrunkTriggered();
+    const drunkTriggered = answers.value[DRUNK_TRIGGER_QUESTION_ID] === 2;
 
     let finalType;
     let modeKicker = '你的主类型';
@@ -237,7 +303,7 @@ export function useSbtiTest() {
       sub,
       special,
       secondaryType,
-      imageSrc: TYPE_IMAGES[finalType.code] || '',
+      imageSrc: resolvePublicAssetPath(TYPE_IMAGES[finalType.code] || ''),
       funNote: special
         ? '本测试仅供娱乐。隐藏人格和傻乐兜底都属于作者故意埋的损招，请勿把它当成医学、心理学、相学、命理学或灵异学依据。'
         : '本测试仅供娱乐，别拿它当诊断、面试、相亲、分手、招魂、算命或人生判决书。你可以笑，但别太当真。',
@@ -252,9 +318,20 @@ export function useSbtiTest() {
     };
   }
 
-  function submitTest() {
-    if (!prototypeData.value || !progress.value.complete) return;
+  async function submitTest() {
+    if (!questionData.value || !progress.value.complete || isSubmitting.value) return;
+
+    isSubmitting.value = true;
+
+    try {
+      await ensureResultDataLoaded();
+    } catch {
+      isSubmitting.value = false;
+      return;
+    }
+
     result.value = computeResult();
+    isSubmitting.value = false;
     showScreen('result');
   }
 
@@ -268,7 +345,9 @@ export function useSbtiTest() {
 
   return {
     screen,
-    isReady,
+    isQuestionDataReady,
+    isResultDataReady,
+    isSubmitting,
     loadError,
     answers,
     visibleQuestions,

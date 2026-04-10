@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "extract": "node ./scripts/extract-prototype.mjs"
+    "extract": "node ./scripts/extract-prototype.mjs",
+    "deploy:pages": "node ./scripts/deploy-gh-pages.mjs"
   },
   "dependencies": {
     "vue": "^3.5.13"
